@@ -4,69 +4,73 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Newspaper WebAR</title>
+  <style>
+    html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10}
+    #ar{width:100%;height:100%}
+  </style>
+  <!-- Three + MindAR (pinned versions) -->
   <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/mind-ar/dist/mindar-image-three.prod.js"></script>
-  <style> body,html{margin:0;height:100%;overflow:hidden;} #ar{width:100%;height:100%;} </style>
+  <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
 </head>
 <body>
 <div id="ar"></div>
-<script type="module">
-  const THREE = window.MINDAR.IMAGE.THREE;
 
+<script type="module">
+  // MindAR exposes a THREE namespace you should use inside AR scenes
+  const THREE_AR = window.MINDAR.IMAGE.THREE;
+
+  // Boot MindAR
   const mindarThree = new window.MINDAR.IMAGE.MindARThree({
     container: document.querySelector("#ar"),
-    imageTargetSrc: "./targets.mind", // compiled from your newspaper front page
-    filterMinCF: 0.0001, filterBeta: 0.01 // slightly snappier tracking
+    imageTargetSrc: "./targets.mind",
+    filterMinCF: 0.0001, filterBeta: 0.01
   });
-  const {renderer, scene, camera} = mindarThree;
+  const { renderer, scene, camera } = mindarThree;
 
-  // Lights
-  const light = new THREE.HemisphereLight(0xffffff, 0x444444, 1.0);
-  scene.add(light);
+  // Lighting
+  scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x444444, 1.0));
 
-  // Anchor at target index 0 (the front page)
+  // Anchor at target 0
   const anchor = mindarThree.addAnchor(0);
 
-  // Cosmic background (video on a plane, slightly behind)
-  const video = document.createElement('video');
+  // Background video plane (behind the page)
+  const video = document.createElement("video");
   video.src = "./cosmic.mp4";
-  video.playsInline = true; video.loop = true; video.muted = true;
+  video.playsInline = true;
+  video.loop = true;
+  video.muted = true;     // required for autoplay on mobile
+  const videoTex = new THREE_AR.VideoTexture(video);
+  const bg = new THREE_AR.Mesh(
+    new THREE_AR.PlaneGeometry(1, 1.414),
+    new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
+  );
+  bg.position.set(0, 0, -0.02);
+  anchor.group.add(bg);
+  anchor.onTargetFound = () => video.play().catch(()=>{});
+  anchor.onTargetLost  = () => video.pause();
 
-  const videoTex = new THREE.VideoTexture(video);
-  const bgGeo = new THREE.PlaneGeometry(1, 1.414); // A4-ish aspect; scale at runtime
-  const bgMat = new THREE.MeshBasicMaterial({map: videoTex, side: THREE.DoubleSide});
-  const bgMesh = new THREE.Mesh(bgGeo, bgMat);
-  bgMesh.position.set(0, 0, -0.02); // slightly behind the page
-  anchor.group.add(bgMesh);
+  // ✅ Import GLTFLoader first, then instantiate
+  const { GLTFLoader } = await import('https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js');
+  const loader = new GLTFLoader();
 
-  // 3D watch (foreground)
-  const loader = new THREE.GLTFLoader();
-  await import('https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js')
-    .then(mod => { THREE.GLTFLoader = mod.GLTFLoader; });
+  // Foreground 3D watch
   loader.load("./watch.glb", (gltf) => {
     const watch = gltf.scene;
-    watch.scale.set(0.12, 0.12, 0.12);  // tune to match page size
-    watch.position.set(0, 0.1, 0.05);   // protrude out of the page
+    watch.scale.set(0.12, 0.12, 0.12);
+    watch.position.set(0, 0.1, 0.05);
     watch.rotation.set(0, Math.PI, 0);
     anchor.group.add(watch);
 
     // gentle float
-    const clock = new THREE.Clock();
-    function animateWatch() {
-      const t = clock.getElapsedTime();
-      watch.position.z = 0.05 + Math.sin(t*1.5)*0.005;
-      requestAnimationFrame(animateWatch);
-    }
-    animateWatch();
-  });
+    const clock = new THREE_AR.Clock();
+    const tick = () => {
+      watch.position.z = 0.05 + Math.sin(clock.getElapsedTime() * 1.5) * 0.005;
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }, undefined, (err) => console.error("GLB load error:", err));
 
-  // Start/Stop video on target visible
-  anchor.onTargetFound = () => { video.play().catch(()=>{}); };
-  anchor.onTargetLost  = () => { video.pause(); };
-
-  // Fit overlay to actual newspaper aspect
-  anchor.group.scale.set(1.0, 1.0, 1.0); // tweak after testing distance/print size
-
+  // Start AR render loop
   await mindarThree.start();
   renderer.setAnimationLoop(() => { renderer.render(scene, camera); });
 </script>
