@@ -40,7 +40,7 @@
     try{
       // 1) Load libs (UMD builds, no modules)
       await loadScript('https://unpkg.com/three@0.154.0/build/three.min.js');
-      await loadScript('https://unpkg.com/mind-ar@1.1.7/dist/mindar-image-three.prod.js');
+      await loadScript('https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js');
 
       if (!window.MINDAR || !window.MINDAR.IMAGE) {
         setStatus('MindAR failed to load'); return;
