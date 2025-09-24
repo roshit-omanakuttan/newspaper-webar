@@ -3,13 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video on Marker</title>
+  <title>WebAR • Video + Watch</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0}
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
   </style>
   <link rel="icon" href="data:,"/>
+  <!-- MindAR UMD (same file you already used) -->
   <script src="./mindar-image-three.prod.js"></script>
 </head>
 <body>
@@ -18,6 +19,15 @@
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
+
+  // tiny helper to load a script and return a promise
+  const loadScript = (src) => new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed to load '+src));
+    document.head.appendChild(s);
+  });
 
   async function init(){
     if (!window.MINDAR || !window.MINDAR.IMAGE) { status('MindAR failed to load'); return; }
@@ -41,53 +51,43 @@
 
     const videoTex = new THREE_AR.VideoTexture(video);
     const plane = new THREE_AR.Mesh(
-      new THREE_AR.PlaneGeometry(1.0, 1.414),                 // adjust to your page aspect
+      new THREE_AR.PlaneGeometry(1.0, 1.414), // adjust to your page aspect
       new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
     );
     plane.position.set(0,0,0.001);
     plane.visible = false;
     anchor.group.add(plane);
 
-    // play/pause with tracking
     anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; video.play().catch(()=>{}); };
     anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
 
+    // ---- start AR first ----
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+
+    // ---- then load GLTFLoader, using the SAME THREE instance ----
+    window.THREE = THREE_AR; // make MindAR's THREE visible for the non-module loader
+    await loadScript('https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js');
+
+    const loader = new THREE.GLTFLoader();
+    loader.load('./watch.glb', (gltf) => {
+      const watch = gltf.scene;
+      watch.scale.set(0.12, 0.12, 0.12);
+      watch.position.set(0, 0.1, 0.05);  // slightly above the page
+      watch.rotation.set(0, Math.PI, 0);
+      anchor.group.add(watch);
+
+      // gentle float
+      const clock = new THREE_AR.Clock();
+      (function tick(){
+        watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
+        requestAnimationFrame(tick);
+      })();
+    }, undefined, (err) => console.error('GLB load error:', err));
   }
+
   window.addEventListener('load', init);
-
-  await mindarThree.start();
-  status('Searching for marker…');
-  renderer.setAnimationLoop(()=>renderer.render(scene,camera));
-
-  // ---- load GLTF watch model (after start) ----
-  // make MindAR's THREE available on window for the loader script:
-  window.THREE = THREE_AR;
-
-  // load GLTFLoader dynamically so it attaches to window.THREE
-  await new Promise((resolve, reject) => {
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js';
-    s.onload = resolve; s.onerror = () => reject(new Error('GLTFLoader failed'));
-    document.head.appendChild(s);
-  });
-
-  const loader = new THREE.GLTFLoader();
-  loader.load('./watch.glb', (gltf) => {
-    const watch = gltf.scene;
-    // tune these to fit your page
-    watch.scale.set(0.12, 0.12, 0.12);
-    watch.position.set(0, 0.1, 0.05);  // slightly above the page
-    watch.rotation.set(0, Math.PI, 0);
-    anchor.group.add(watch);
-
-    // gentle float
-    const clock = new THREE_AR.Clock();
-    (function tick(){ watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005; requestAnimationFrame(tick); })();
-  }, undefined, (err) => console.error('GLB load error:', err));
-
 </script>
 </body>
 </html>
