@@ -76,12 +76,12 @@
       loader.setDRACOLoader(draco);
     }
 
-    loader.load('./Duck.glb', (gltf) => {
+    loader.load('./watch.glb', (gltf) => {
       const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!watch){ console.error('GLB has no scene'); return; }
 
       // Position & scale; tweak to taste
-      watch.scale.set(12.5, 12.5, 12.5);
+      watch.scale.set(10, 10, 10);
       watch.position.set(0, 0.1, 0.05);
       watch.rotation.set(0, Math.PI, 0);
       anchor.group.add(watch);
