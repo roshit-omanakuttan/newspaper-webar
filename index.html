@@ -3,41 +3,43 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>Newspaper WebAR</title>
+<title>Newspaper WebAR — Diagnostics</title>
 <style>
-  html,body{margin:0;height:100%;background:#0b0b10}
+  html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5;font:14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial}
   #ar{position:fixed;inset:0}
-  #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#0b0b10;color:#eaeaf5}
-  #start button{font-size:18px;padding:12px 20px;border:0;border-radius:10px}
+  #panel{position:fixed;top:10px;left:10px;right:10px;max-width:720px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:10px 12px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+  #panel h1{margin:0 0 6px;font-size:16px}
+  .row{display:flex;align-items:center;gap:8px;margin:4px 0}
+  .dot{width:9px;height:9px;border-radius:50%;background:#666}
+  .ok {background:#36d399}
+  .bad{background:#ef4444}
+  #start{margin-top:8px}
+  button{padding:8px 12px;border:0;border-radius:8px;background:#2b4cff;color:#fff;font-weight:600}
+  code{background:#1b1b2d;padding:1px 4px;border-radius:6px}
+  a{color:#a8b7ff}
 </style>
 <link rel="icon" href="data:,"/>
 </head>
 <body>
 <div id="ar"></div>
-<div id="start"><button>Start AR</button></div>
+<div id="panel">
+  <h1>WebAR Diagnostics</h1>
+  <div class="row"><div class="dot" id="d-three"></div> Three.js loaded</div>
+  <div class="row"><div class="dot" id="d-gltf"></div> GLTFLoader loaded</div>
+  <div class="row"><div class="dot" id="d-mindar"></div> MindAR loaded (<code>window.MINDAR.IMAGE</code>)</div>
+  <div class="row"><div class="dot" id="d-cameraapi"></div> Camera API available (<code>navigator.mediaDevices</code>)</div>
+  <div class="row"><div class="dot" id="d-camperm"></div> Camera permission granted</div>
+  <div class="row"><div class="dot" id="d-targets"></div> <code>./targets.mind</code> reachable</div>
+  <div class="row"><div class="dot" id="d-watch"></div> <code>./watch.glb</code> reachable</div>
+  <div class="row"><div class="dot" id="d-video"></div> <code>./cosmic.mp4</code> reachable (optional but recommended)</div>
+  <div class="row"><div class="dot" id="d-started"></div> MindAR started</div>
+  <div id="msg" style="margin-top:6px;opacity:.9"></div>
+  <div id="start"><button id="btn">Start AR</button></div>
+</div>
 
 <script>
-const loadScript = (src) => new Promise((res, rej) => {
-  const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('load '+src)); document.head.appendChild(s);
-});
-
-async function boot(){
-  // load libs in order
-  await loadScript('https://unpkg.com/three@0.154.0/build/three.min.js');
-  await loadScript('https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js');
-  try {
-    await loadScript('https://unpkg.com/mind-ar@1.1.7/dist/mindar-image-three.prod.js');
-  } catch { await loadScript('https://cdn.jsdelivr.net/npm/mind-ar@1.1.7/dist/mindar-image-three.prod.js'); }
-
-  if(!window.MINDAR || !window.MINDAR.IMAGE){ console.error('MindAR failed to load'); return; }
-
-  const THREE_AR = window.MINDAR.IMAGE.THREE;
-  const mindarThree = new window.MINDAR.IMAGE.MindARThree({
-    container: document.querySelector('#ar'),
-    imageTargetSrc: './targets.mind',
-    filterMinCF: 0.0001, filterBeta: 0.01
-  });
-  const { renderer, scene, camera } = mindarThree;
-
-  scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x444444, 1.0));
-  const anchor = mindarThree.addAnchor(0
+  const set = (id, ok, note="")=>{
+    const el = document.getElementById(id);
+    el.classList.remove('ok','bad');
+    el.classList.add(ok?'ok':'bad');
+    if(note){
