@@ -8,15 +8,39 @@
     html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10}
     #ar{width:100%;height:100%}
   </style>
-  <link rel="icon" href="data:,"/> <!-- quiets favicon 404 -->
+  <link rel="icon" href="data:,"/>
 </head>
 <body>
 <div id="ar"></div>
 
 <script type="module">
-  import * as THREE from "https://unpkg.com/three@0.154.0/build/three.module.js";
-  import { GLTFLoader } from "https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js";
-  import { MindARThree } from "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.module.js";
+  // ---- resilient imports ----
+  async function importMindAR() {
+    const tries = [
+      "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.module.js",
+      "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.module.js",
+      "https://unpkg.com/mind-ar@1.2.4/dist/mindar-image-three.module.js",
+      "https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-three.module.js",
+    ];
+    for (const url of tries) {
+      try { return await import(url); } catch(e) {}
+    }
+    // last-ditch: load UMD and use window.MINDAR
+    await new Promise((res, rej) => {
+      const s = document.createElement("script");
+      s.src = "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js";
+      s.onload = res; s.onerror = rej; document.head.appendChild(s);
+    });
+    return { MindARThree: window.MINDAR.IMAGE.MindARThree, __umd: true };
+  }
+
+  // three.js (module) + GLTFLoader
+  const THREE = await import("https://unpkg.com/three@0.154.0/build/three.module.js");
+  const { GLTFLoader } = await import("https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js");
+
+  // mind-ar
+  const mind = await importMindAR();
+  const MindARThree = mind.MindARThree;
 
   const container = document.querySelector("#ar");
 
@@ -31,12 +55,10 @@
 
   const anchor = mindarThree.addAnchor(0);
 
-  // Background video plane (behind the page)
+  // background video (behind the page)
   const video = document.createElement("video");
   video.src = "./cosmic.mp4";
-  video.playsInline = true;
-  video.loop = true;
-  video.muted = true; // required for autoplay
+  video.playsInline = true; video.loop = true; video.muted = true;
   const videoTex = new THREE.VideoTexture(video);
   const bg = new THREE.Mesh(
     new THREE.PlaneGeometry(1, 1.414),
@@ -47,7 +69,7 @@
   anchor.onTargetFound = () => video.play().catch(()=>{});
   anchor.onTargetLost  = () => video.pause();
 
-  // Foreground 3D watch
+  // foreground watch
   const loader = new GLTFLoader();
   loader.load("./watch.glb", (gltf) => {
     const watch = gltf.scene;
@@ -62,7 +84,7 @@
       requestAnimationFrame(tick);
     };
     tick();
-  }, undefined, (err) => console.error("GLB load error:", err));
+  }, undefined, err => console.error("GLB load error:", err));
 
   await mindarThree.start();
   renderer.setAnimationLoop(() => renderer.render(scene, camera));
