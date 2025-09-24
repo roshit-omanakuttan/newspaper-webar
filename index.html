@@ -76,7 +76,7 @@
       loader.setDRACOLoader(draco);
     }
 
-    loader.load('./watch.glb', (gltf) => {
+    loader.load('./Duck.glb', (gltf) => {
       const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!watch){ console.error('GLB has no scene'); return; }
 
