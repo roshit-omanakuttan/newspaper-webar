@@ -9,68 +9,50 @@
     #ar{width:100%;height:100%}
   </style>
   <link rel="icon" href="data:,"/>
+  <!-- Three.js (global UMD) -->
+  <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
+  <!-- GLTFLoader (legacy non-module; attaches to window.THREE) -->
+  <script src="https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js"></script>
+  <!-- MindAR (global UMD) -->
+  <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
 </head>
 <body>
 <div id="ar"></div>
 
-<script type="module">
-  // ---- resilient imports ----
-  async function importMindAR() {
-    const tries = [
-      "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.module.js",
-      "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.module.js",
-      "https://unpkg.com/mind-ar@1.2.4/dist/mindar-image-three.module.js",
-      "https://cdn.jsdelivr.net/npm/mind-ar@1.2.4/dist/mindar-image-three.module.js",
-    ];
-    for (const url of tries) {
-      try { return await import(url); } catch(e) {}
-    }
-    // last-ditch: load UMD and use window.MINDAR
-    await new Promise((res, rej) => {
-      const s = document.createElement("script");
-      s.src = "https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js";
-      s.onload = res; s.onerror = rej; document.head.appendChild(s);
-    });
-    return { MindARThree: window.MINDAR.IMAGE.MindARThree, __umd: true };
-  }
+<script>
+  // Use the THREE bundled by MindAR to avoid prototype mismatches
+  const THREE_AR = window.MINDAR.IMAGE.THREE;
 
-  // three.js (module) + GLTFLoader
-  const THREE = await import("https://unpkg.com/three@0.154.0/build/three.module.js");
-  const { GLTFLoader } = await import("https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js");
-
-  // mind-ar
-  const mind = await importMindAR();
-  const MindARThree = mind.MindARThree;
-
-  const container = document.querySelector("#ar");
-
-  const mindarThree = new MindARThree({
-    container,
+  const mindarThree = new window.MINDAR.IMAGE.MindARThree({
+    container: document.querySelector("#ar"),
     imageTargetSrc: "./targets.mind",
     filterMinCF: 0.0001, filterBeta: 0.01
   });
   const { renderer, scene, camera } = mindarThree;
 
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+  // lights
+  scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x444444, 1.0));
 
+  // anchor
   const anchor = mindarThree.addAnchor(0);
 
-  // background video (behind the page)
+  // background video plane
   const video = document.createElement("video");
   video.src = "./cosmic.mp4";
-  video.playsInline = true; video.loop = true; video.muted = true;
-  const videoTex = new THREE.VideoTexture(video);
-  const bg = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1.414),
-    new THREE.MeshBasicMaterial({ map: videoTex, side: THREE.DoubleSide })
+  video.playsInline = true; video.loop = true; video.muted = true; // for autoplay
+  const videoTex = new THREE_AR.VideoTexture(video);
+  const bg = new THREE_AR.Mesh(
+    new THREE_AR.PlaneGeometry(1, 1.414),
+    new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
   );
   bg.position.set(0, 0, -0.02);
   anchor.group.add(bg);
   anchor.onTargetFound = () => video.play().catch(()=>{});
   anchor.onTargetLost  = () => video.pause();
 
-  // foreground watch
-  const loader = new GLTFLoader();
+  // Foreground 3D watch
+  // GLTFLoader is attached to global THREE by the non-module script above
+  const loader = new THREE.GLTFLoader();
   loader.load("./watch.glb", (gltf) => {
     const watch = gltf.scene;
     watch.scale.set(0.12, 0.12, 0.12);
@@ -78,16 +60,18 @@
     watch.rotation.set(0, Math.PI, 0);
     anchor.group.add(watch);
 
-    const clock = new THREE.Clock();
+    const clock = new THREE_AR.Clock();
     const tick = () => {
       watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
       requestAnimationFrame(tick);
     };
     tick();
-  }, undefined, err => console.error("GLB load error:", err));
+  }, undefined, (err) => console.error("GLB load error:", err));
 
-  await mindarThree.start();
-  renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  // start AR
+  mindarThree.start().then(() => {
+    renderer.setAnimationLoop(() => renderer.render(scene, camera));
+  }).catch(e => console.error("MindAR start error:", e));
 </script>
 </body>
 </html>
