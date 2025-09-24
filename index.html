@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Watch (r128 loaders)</title>
+  <title>WebAR • Video + Watch (drag-to-spin)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
-    #ar{position:fixed;inset:0}
+    #ar{position:fixed;inset:0; touch-action:none;} /* ← important for smooth dragging */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
   </style>
   <link rel="icon" href="data:,"/>
@@ -62,7 +62,7 @@
     window.THREE = THREE_AR; // expose the same THREE for legacy example loaders
     await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
 
-    // Optional: DRACO support (only used if your GLB is draco-compressed)
+    // Optional: DRACO (only if your GLB is draco-compressed)
     try {
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/libs/draco/draco_decoder.js');
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/DRACOLoader.js');
@@ -71,7 +71,6 @@
     const loader = new THREE.GLTFLoader();
     if (THREE.DRACOLoader) {
       const draco = new THREE.DRACOLoader();
-      // built-in decoder path in r128 examples; works over https
       draco.setDecoderPath('https://unpkg.com/three@0.128.0/examples/js/libs/draco/');
       loader.setDRACOLoader(draco);
     }
@@ -80,18 +79,50 @@
       const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!watch){ console.error('GLB has no scene'); return; }
 
-      // Position & scale; tweak to taste
+      // size/orientation — keep your large scale
       watch.scale.set(10, 10, 10);
       watch.position.set(0, 0.1, 0.05);
       watch.rotation.set(0, Math.PI, 0);
       anchor.group.add(watch);
 
-      // gentle float
-      const clock = new THREE_AR.Clock();
-      (function tick(){
-        watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
-        requestAnimationFrame(tick);
-      })();
+      // -------- Option B: drag-to-spin with inertia --------
+      const el = document.getElementById('ar');
+      let dragging = false, lastX = 0, velocity = 0;
+      const friction = 0.96;       // inertia decay (0–1). Lower = stops sooner
+      const dragFactor = 0.008;    // sensitivity (bigger = faster spin)
+
+      el.addEventListener('pointerdown', e => {
+        dragging = true;
+        lastX = e.clientX;
+        velocity = 0;
+        el.setPointerCapture(e.pointerId);
+      });
+
+      el.addEventListener('pointermove', e => {
+        if (!dragging) return;
+        const dx = e.clientX - lastX;
+        lastX = e.clientX;
+        watch.rotation.y -= dx * dragFactor; // drag to rotate
+        velocity = -dx * dragFactor;         // remember motion for inertia
+      });
+
+      const endDrag = e => { dragging = false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+      el.addEventListener('pointerleave', endDrag);
+
+      // inertia loop
+      function animateSpin(){
+        if (!dragging) {
+          watch.rotation.y += velocity;
+          velocity *= friction;
+          if (Math.abs(velocity) < 1e-4) velocity = 0;
+        }
+        requestAnimationFrame(animateSpin);
+      }
+      animateSpin();
+      // ------------------------------------------------------
+
     }, undefined, (err) => {
       console.error('GLB load error:', err);
       status('Failed to load watch.glb');
