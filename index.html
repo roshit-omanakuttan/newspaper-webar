@@ -1,15 +1,83 @@
-<!doctype html><meta charset="utf-8">
-<title>Camera test</title>
-<style>html,body{margin:0;height:100%;background:#111} video{width:100%;height:100%;object-fit:cover}</style>
-<video id="v" autoplay playsinline muted></video>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>WebAR • Marker detect only</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5;font:14px/1.4 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+  #ar{position:fixed;inset:0}
+  #panel{position:fixed;top:10px;left:10px;padding:8px 10px;background:#121222;border:1px solid #2a2a44;border-radius:10px}
+  .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#ef4444;margin-right:6px;vertical-align:middle}
+  .ok{background:#36d399}
+  #btn{margin-left:8px;padding:6px 10px;border:0;border-radius:8px;background:#2b4cff;color:#fff;font-weight:600}
+</style>
+<link rel="icon" href="data:,"/>
+</head>
+<body>
+<div id="ar"></div>
+
+<div id="panel">
+  <span class="dot" id="d-start"></span><span id="status">Idle</span>
+  <button id="btn">Start AR</button>
+</div>
+
 <script>
-(async ()=>{
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({video:true, audio:false});
-    document.getElementById('v').srcObject = stream;
-  } catch (e) {
-    alert('Camera blocked: ' + (e.name || e));
-    console.error(e);
+  // tiny loader so scripts come in the right order
+  const loadScript = (src) => new Promise((resolve, reject) => {
+    const s = document.createElement('script'); s.src = src; s.async = false;
+    s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+src));
+    document.head.appendChild(s);
+  });
+
+  const setStatus = (msg, ok=false) => {
+    document.getElementById('status').textContent = msg;
+    const dot = document.getElementById('d-start');
+    dot.classList.toggle('ok', !!ok);
+  };
+
+  async function startAR(){
+    try{
+      // 1) Load libs (UMD builds, no modules)
+      await loadScript('https://unpkg.com/three@0.154.0/build/three.min.js');
+      await loadScript('https://unpkg.com/mind-ar@1.1.7/dist/mindar-image-three.prod.js');
+
+      if (!window.MINDAR || !window.MINDAR.IMAGE) {
+        setStatus('MindAR failed to load'); return;
+      }
+
+      setStatus('Initializing camera...');
+      const container = document.querySelector('#ar');
+
+      // 2) Minimal MindAR scene (no 3D content)
+      const mindarThree = new window.MINDAR.IMAGE.MindARThree({
+        container,
+        imageTargetSrc: './targets.mind',   // <-- make sure this exists at repo root
+        // MindAR requests rear camera (facingMode: "environment") internally
+      });
+      const { renderer, scene, camera } = mindarThree;
+
+      // 3) Anchor for target index 0
+      const anchor = mindarThree.addAnchor(0);
+
+      // 4) Hook detection events
+      anchor.onTargetFound = () => setStatus('Marker detected ✅', true);
+      anchor.onTargetLost  = () => setStatus('Searching for marker…');
+
+      // 5) Start
+      await mindarThree.start();
+      setStatus('Searching for marker…'); // camera running
+      renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    }catch(e){
+      console.error(e);
+      setStatus('Error: ' + (e.message || e));
+    }
   }
-})();
+
+  document.getElementById('btn').addEventListener('click', async () => {
+    document.getElementById('btn').disabled = true;
+    await startAR();
+  });
 </script>
+</body>
+</html>
