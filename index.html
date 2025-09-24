@@ -68,7 +68,7 @@
 
     // ---- then load GLTFLoader, using the SAME THREE instance ----
     window.THREE = THREE_AR; // make MindAR's THREE visible for the non-module loader
-    await loadScript('https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js');
+    await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
 
     const loader = new THREE.GLTFLoader();
     loader.load('./watch.glb', (gltf) => {
