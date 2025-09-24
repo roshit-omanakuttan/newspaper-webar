@@ -3,14 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Watch</title>
+  <title>WebAR • Video + Watch (r128 loaders)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0}
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
   </style>
   <link rel="icon" href="data:,"/>
-  <!-- MindAR UMD (same file you already used) -->
+  <!-- MindAR UMD (uses Three r128 internally) -->
   <script src="./mindar-image-three.prod.js"></script>
 </head>
 <body>
@@ -19,18 +19,14 @@
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
-
-  // tiny helper to load a script and return a promise
   const loadScript = (src) => new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error('Failed to load '+src));
+    s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+src));
     document.head.appendChild(s);
   });
 
   async function init(){
-    if (!window.MINDAR || !window.MINDAR.IMAGE) { status('MindAR failed to load'); return; }
+    if(!window.MINDAR || !window.MINDAR.IMAGE){ status('MindAR failed to load'); return; }
     const THREE_AR = window.MINDAR.IMAGE.THREE;
 
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
@@ -42,16 +38,12 @@
 
     const anchor = mindarThree.addAnchor(0);
 
-    // ---- video texture plane (cosmic.mp4) ----
+    // Video plane
     const video = document.createElement('video');
-    video.src = './cosmic.mp4';
-    video.playsInline = true;   // iOS requirement
-    video.muted = true;         // allow autoplay
-    video.loop = true;
-
+    video.src = './cosmic.mp4'; video.playsInline = true; video.muted = true; video.loop = true;
     const videoTex = new THREE_AR.VideoTexture(video);
     const plane = new THREE_AR.Mesh(
-      new THREE_AR.PlaneGeometry(1.0, 1.414), // adjust to your page aspect
+      new THREE_AR.PlaneGeometry(1.0, 1.414), // tweak to match page aspect
       new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
     );
     plane.position.set(0,0,0.001);
@@ -61,20 +53,36 @@
     anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; video.play().catch(()=>{}); };
     anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
 
-    // ---- start AR first ----
+    // Start AR first
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
 
-    // ---- then load GLTFLoader, using the SAME THREE instance ----
-    window.THREE = THREE_AR; // make MindAR's THREE visible for the non-module loader
+    // Load r128 GLTFLoader (matches MindAR’s THREE)
+    window.THREE = THREE_AR; // expose the same THREE for legacy example loaders
     await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
 
+    // Optional: DRACO support (only used if your GLB is draco-compressed)
+    try {
+      await loadScript('https://unpkg.com/three@0.128.0/examples/js/libs/draco/draco_decoder.js');
+      await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/DRACOLoader.js');
+    } catch(_) {/* ignore if not needed */}
+
     const loader = new THREE.GLTFLoader();
+    if (THREE.DRACOLoader) {
+      const draco = new THREE.DRACOLoader();
+      // built-in decoder path in r128 examples; works over https
+      draco.setDecoderPath('https://unpkg.com/three@0.128.0/examples/js/libs/draco/');
+      loader.setDRACOLoader(draco);
+    }
+
     loader.load('./watch.glb', (gltf) => {
-      const watch = gltf.scene;
+      const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+      if(!watch){ console.error('GLB has no scene'); return; }
+
+      // Position & scale; tweak to taste
       watch.scale.set(0.12, 0.12, 0.12);
-      watch.position.set(0, 0.1, 0.05);  // slightly above the page
+      watch.position.set(0, 0.1, 0.05);
       watch.rotation.set(0, Math.PI, 0);
       anchor.group.add(watch);
 
@@ -84,7 +92,10 @@
         watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
         requestAnimationFrame(tick);
       })();
-    }, undefined, (err) => console.error('GLB load error:', err));
+    }, undefined, (err) => {
+      console.error('GLB load error:', err);
+      status('Failed to load watch.glb');
+    });
   }
 
   window.addEventListener('load', init);
