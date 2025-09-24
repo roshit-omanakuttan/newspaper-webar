@@ -8,29 +8,27 @@
     html,body{margin:0;height:100%;overflow:hidden;background:#0b0b10}
     #ar{width:100%;height:100%}
   </style>
-  <!-- Three + MindAR (pinned versions) -->
-  <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+  <link rel="icon" href="data:,"/> <!-- quiets favicon 404 -->
 </head>
 <body>
 <div id="ar"></div>
 
 <script type="module">
-  // MindAR exposes a THREE namespace you should use inside AR scenes
-  const THREE_AR = window.MINDAR.IMAGE.THREE;
+  import * as THREE from "https://unpkg.com/three@0.154.0/build/three.module.js";
+  import { GLTFLoader } from "https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js";
+  import { MindARThree } from "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.module.js";
 
-  // Boot MindAR
-  const mindarThree = new window.MINDAR.IMAGE.MindARThree({
-    container: document.querySelector("#ar"),
+  const container = document.querySelector("#ar");
+
+  const mindarThree = new MindARThree({
+    container,
     imageTargetSrc: "./targets.mind",
     filterMinCF: 0.0001, filterBeta: 0.01
   });
   const { renderer, scene, camera } = mindarThree;
 
-  // Lighting
-  scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x444444, 1.0));
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
 
-  // Anchor at target 0
   const anchor = mindarThree.addAnchor(0);
 
   // Background video plane (behind the page)
@@ -38,22 +36,19 @@
   video.src = "./cosmic.mp4";
   video.playsInline = true;
   video.loop = true;
-  video.muted = true;     // required for autoplay on mobile
-  const videoTex = new THREE_AR.VideoTexture(video);
-  const bg = new THREE_AR.Mesh(
-    new THREE_AR.PlaneGeometry(1, 1.414),
-    new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
+  video.muted = true; // required for autoplay
+  const videoTex = new THREE.VideoTexture(video);
+  const bg = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1.414),
+    new THREE.MeshBasicMaterial({ map: videoTex, side: THREE.DoubleSide })
   );
   bg.position.set(0, 0, -0.02);
   anchor.group.add(bg);
   anchor.onTargetFound = () => video.play().catch(()=>{});
   anchor.onTargetLost  = () => video.pause();
 
-  // ✅ Import GLTFLoader first, then instantiate
-  const { GLTFLoader } = await import('https://unpkg.com/three@0.154.0/examples/jsm/loaders/GLTFLoader.js');
-  const loader = new GLTFLoader();
-
   // Foreground 3D watch
+  const loader = new GLTFLoader();
   loader.load("./watch.glb", (gltf) => {
     const watch = gltf.scene;
     watch.scale.set(0.12, 0.12, 0.12);
@@ -61,18 +56,16 @@
     watch.rotation.set(0, Math.PI, 0);
     anchor.group.add(watch);
 
-    // gentle float
-    const clock = new THREE_AR.Clock();
+    const clock = new THREE.Clock();
     const tick = () => {
-      watch.position.z = 0.05 + Math.sin(clock.getElapsedTime() * 1.5) * 0.005;
+      watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
       requestAnimationFrame(tick);
     };
     tick();
   }, undefined, (err) => console.error("GLB load error:", err));
 
-  // Start AR render loop
   await mindarThree.start();
-  renderer.setAnimationLoop(() => { renderer.render(scene, camera); });
+  renderer.setAnimationLoop(() => renderer.render(scene, camera));
 </script>
 </body>
 </html>
