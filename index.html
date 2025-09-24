@@ -1,30 +1,41 @@
 <!doctype html>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>WebAR • Detect Only (UMD)</title>
-<style>html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5} #ar{position:fixed;inset:0} #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}</style>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>WebAR • Detect Only (MindAR 1.1.5 UMD)</title>
+  <style>
+    html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
+    #ar{position:fixed;inset:0}
+    #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
+  </style>
+  <link rel="icon" href="data:,"/>
+  <!-- MindAR UMD (local, no modules needed) -->
+  <script src="./mindar-image-three.prod.js"></script>
+</head>
+<body>
 <div id="ar"></div>
 <div id="status">Idle</div>
 
-<!-- UMD scripts (no type="module") -->
-<script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
-<script src="https://unpkg.com/mind-ar@1.1.5/dist/mindar-image-three.prod.js"></script>
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
 
-  (async () => {
+  async function init(){
     if (!window.MINDAR || !window.MINDAR.IMAGE) {
       status('MindAR failed to load'); return;
     }
+
     const THREE_AR = window.MINDAR.IMAGE.THREE;
 
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
-      imageTargetSrc: './targets.mind',
+      imageTargetSrc: './targets.mind',  // <-- keep this file at repo root
     });
     const { renderer, scene, camera } = mindarThree;
 
+    // tiny light so we know the scene is alive (not strictly needed for detect-only)
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
+
     const anchor = mindarThree.addAnchor(0);
     anchor.onTargetFound = () => status('Marker detected ✅');
     anchor.onTargetLost  = () => status('Searching for marker…');
@@ -32,5 +43,9 @@
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
-  })();
+  }
+
+  window.addEventListener('load', init);
 </script>
+</body>
+</html>
