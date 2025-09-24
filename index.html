@@ -3,14 +3,13 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Plane on Marker</title>
+  <title>WebAR • Video on Marker</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0}
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
   </style>
   <link rel="icon" href="data:,"/>
-  <!-- MindAR UMD (local, same as you used) -->
   <script src="./mindar-image-three.prod.js"></script>
 </head>
 <body>
@@ -22,44 +21,41 @@
 
   async function init(){
     if (!window.MINDAR || !window.MINDAR.IMAGE) { status('MindAR failed to load'); return; }
-
     const THREE_AR = window.MINDAR.IMAGE.THREE;
 
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
-      imageTargetSrc: './targets.mind',
+      imageTargetSrc: './targets.mind'
     });
     const { renderer, scene, camera } = mindarThree;
-
-    // simple light (not required for MeshBasicMaterial, but fine to keep)
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
 
-    // anchor at target 0
     const anchor = mindarThree.addAnchor(0);
 
-    // ----- NEW: translucent plane sitting on the marker -----
-    // size tip: if your front page is tall, 1 x 1.414 (A-series aspect) feels right; tweak as needed
-    const planeGeo = new THREE_AR.PlaneGeometry(1.0, 1.414);
-    const planeMat = new THREE_AR.MeshBasicMaterial({
-      color: 0x4f46e5,    // indigo
-      transparent: true,
-      opacity: 0.35,
-      side: THREE_AR.DoubleSide
-    });
-    const plane = new THREE_AR.Mesh(planeGeo, planeMat);
-    plane.position.set(0, 0, 0.001); // tiny lift so it doesn't z-fight with the marker plane
+    // ---- video texture plane (cosmic.mp4) ----
+    const video = document.createElement('video');
+    video.src = './cosmic.mp4';
+    video.playsInline = true;   // iOS requirement
+    video.muted = true;         // allow autoplay
+    video.loop = true;
+
+    const videoTex = new THREE_AR.VideoTexture(video);
+    const plane = new THREE_AR.Mesh(
+      new THREE_AR.PlaneGeometry(1.0, 1.414),                 // adjust to your page aspect
+      new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
+    );
+    plane.position.set(0,0,0.001);
+    plane.visible = false;
     anchor.group.add(plane);
 
-    // show status on detection
-    anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; };
-    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; };
-    plane.visible = false;
+    // play/pause with tracking
+    anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; video.play().catch(()=>{}); };
+    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
 
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
   }
-
   window.addEventListener('load', init);
 </script>
 </body>
