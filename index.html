@@ -9,18 +9,24 @@
     #ar{width:100%;height:100%}
   </style>
   <link rel="icon" href="data:,"/>
-  <!-- Three.js (global UMD) -->
+  <!-- Three.js (global) -->
   <script src="https://unpkg.com/three@0.154.0/build/three.min.js"></script>
-  <!-- GLTFLoader (legacy non-module; attaches to window.THREE) -->
+  <!-- GLTFLoader (non-module; attaches to window.THREE) -->
   <script src="https://unpkg.com/three@0.154.0/examples/js/loaders/GLTFLoader.js"></script>
-  <!-- MindAR (global UMD) -->
-  <script src="https://unpkg.com/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
+  <!-- MindAR UMD (KNOWN WORKING) -->
+  <script src="https://unpkg.com/mind-ar@1.1.7/dist/mindar-image-three.prod.js"></script>
+  <!-- Fallback CDN in case unpkg hiccups -->
+  <script>
+    if (!window.MINDAR || !window.MINDAR.IMAGE) {
+      document.write('<script src="https://cdn.jsdelivr.net/npm/mind-ar@1.1.7/dist/mindar-image-three.prod.js"><\/script>');
+    }
+  </script>
 </head>
 <body>
 <div id="ar"></div>
 
 <script>
-  // Use the THREE bundled by MindAR to avoid prototype mismatches
+  // Use THREE wrapped by MindAR to avoid class mismatches
   const THREE_AR = window.MINDAR.IMAGE.THREE;
 
   const mindarThree = new window.MINDAR.IMAGE.MindARThree({
@@ -30,16 +36,14 @@
   });
   const { renderer, scene, camera } = mindarThree;
 
-  // lights
   scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x444444, 1.0));
 
-  // anchor
   const anchor = mindarThree.addAnchor(0);
 
-  // background video plane
+  // Background video plane
   const video = document.createElement("video");
   video.src = "./cosmic.mp4";
-  video.playsInline = true; video.loop = true; video.muted = true; // for autoplay
+  video.playsInline = true; video.loop = true; video.muted = true; // autoplay on mobile
   const videoTex = new THREE_AR.VideoTexture(video);
   const bg = new THREE_AR.Mesh(
     new THREE_AR.PlaneGeometry(1, 1.414),
@@ -50,8 +54,7 @@
   anchor.onTargetFound = () => video.play().catch(()=>{});
   anchor.onTargetLost  = () => video.pause();
 
-  // Foreground 3D watch
-  // GLTFLoader is attached to global THREE by the non-module script above
+  // Foreground GLB
   const loader = new THREE.GLTFLoader();
   loader.load("./watch.glb", (gltf) => {
     const watch = gltf.scene;
@@ -61,14 +64,12 @@
     anchor.group.add(watch);
 
     const clock = new THREE_AR.Clock();
-    const tick = () => {
+    (function tick(){
       watch.position.z = 0.05 + Math.sin(clock.getElapsedTime()*1.5)*0.005;
       requestAnimationFrame(tick);
-    };
-    tick();
+    })();
   }, undefined, (err) => console.error("GLB load error:", err));
 
-  // start AR
   mindarThree.start().then(() => {
     renderer.setAnimationLoop(() => renderer.render(scene, camera));
   }).catch(e => console.error("MindAR start error:", e));
