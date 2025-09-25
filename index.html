@@ -31,7 +31,7 @@
 
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
-      imageTargetSrc: './targets.mind'
+      imageTargetSrc: './sunglass.mind'
     });
     const { renderer, scene, camera } = mindarThree;
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
@@ -40,7 +40,7 @@
 
     // Video plane
     const video = document.createElement('video');
-    video.src = './cosmic.mp4'; video.playsInline = true; video.muted = true; video.loop = true;
+    video.src = './sunglass.mp4'; video.playsInline = true; video.muted = true; video.loop = true;
     const videoTex = new THREE_AR.VideoTexture(video);
     const plane = new THREE_AR.Mesh(
       new THREE_AR.PlaneGeometry(1.0, 1.414), // tweak to match page aspect
@@ -75,7 +75,7 @@
       loader.setDRACOLoader(draco);
     }
 
-    loader.load('./watch.glb', (gltf) => {
+    loader.load('./sunglass.glb', (gltf) => {
       const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!watch){ console.error('GLB has no scene'); return; }
 
