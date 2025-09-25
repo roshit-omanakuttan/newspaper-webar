@@ -8,6 +8,7 @@
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0; touch-action:none;} /* smooth dragging on mobile */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
+    #unmute{position:fixed;right:10px;top:10px;padding:8px 10px;border:0;border-radius:10px;background:#22c55e;color:#0b0b10;font-weight:700;display:none}
   </style>
   <link rel="icon" href="data:,"/>
   <!-- MindAR UMD (uses Three r128 internally) -->
@@ -16,6 +17,7 @@
 <body>
 <div id="ar"></div>
 <div id="status">Idle</div>
+<button id="unmute">🔊 sound on</button>
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
@@ -42,7 +44,7 @@
     const video = document.createElement('video');
     video.src = './sunglass.mp4';
     video.playsInline = true;  // iOS
-    video.muted = false;       // you can set true if you want autoplay without user gesture
+    video.muted = true;        // ✅ allow autoplay
     video.loop = true;
 
     const videoTex = new THREE_AR.VideoTexture(video);
@@ -51,7 +53,7 @@
       side: THREE_AR.DoubleSide,
       depthWrite: false,             // do not occlude model
     });
-    // optional tiny bias to avoid flicker at grazing angles
+    // tiny depth bias helps at grazing angles
     planeMat.polygonOffset = true;
     planeMat.polygonOffsetFactor = 1;
     planeMat.polygonOffsetUnits  = 1;
@@ -60,13 +62,36 @@
       new THREE_AR.PlaneGeometry(1.0, 1.414), // match your page aspect
       planeMat
     );
-    plane.position.set(0, 0, -0.02);   // clearly behind the page/model
+    plane.position.set(0, 0, -0.03);   // push further back
     plane.renderOrder = 0;             // draw first
     plane.visible = false;
     anchor.group.add(plane);
 
-    anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; video.play().catch(()=>{}); };
-    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
+    const unmuteBtn = document.getElementById('unmute');
+    unmuteBtn.addEventListener('click', async ()=>{
+      try {
+        video.muted = false;
+        await video.play();
+        unmuteBtn.style.display = 'none';
+      } catch(e) {
+        console.warn('Unmute play failed:', e);
+      }
+    });
+
+    anchor.onTargetFound = async () => {
+      status('Marker detected ✅');
+      plane.visible = true;
+      try {
+        await video.play();            // will succeed because muted=true
+        // now we can offer unmute
+        unmuteBtn.style.display = 'inline-block';
+      } catch(e) {
+        console.warn('Autoplay failed:', e);
+        // Show button so user can start manually
+        unmuteBtn.style.display = 'inline-block';
+      }
+    };
+    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); unmuteBtn.style.display = 'none'; };
     // -------------------------------------------------------------
 
     // Start AR first
@@ -97,9 +122,9 @@
 
       // Size/orientation — tune to taste
       model.scale.set(5, 5, 5);
-      model.position.set(0, 0.1, 0.05);  // slightly above the page
-      model.rotation.set(0, Math.PI, 0); // face camera
-      model.renderOrder = 2;             // draw after the plane
+      model.position.set(0, 0.1, 0.05);   // above the page
+      model.rotation.set(0, Math.PI, 0);  // face camera
+      model.renderOrder = 2;              // draw after the plane
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
       anchor.group.add(model);
