@@ -40,7 +40,7 @@
 
     // Video plane
     const video = document.createElement('video');
-    video.src = './sunglass.mp4'; video.playsInline = true; video.muted = true; video.loop = true;
+    video.src = './sunglass.mp4'; video.playsInline = true; video.muted = false; video.loop = true;
     const videoTex = new THREE_AR.VideoTexture(video);
     const plane = new THREE_AR.Mesh(
       new THREE_AR.PlaneGeometry(1.0, 1.414), // tweak to match page aspect
