@@ -3,10 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Watch (drag-to-spin)</title>
+  <title>WebAR • Video + Sunglass (drag-to-spin, depth fixed)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
-    #ar{position:fixed;inset:0; touch-action:none;} /* ← important for smooth dragging */
+    #ar{position:fixed;inset:0; touch-action:none;} /* smooth dragging on mobile */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
   </style>
   <link rel="icon" href="data:,"/>
@@ -38,20 +38,36 @@
 
     const anchor = mindarThree.addAnchor(0);
 
-    // Video plane
+    // -------- Video plane (behind model) with depth fixes --------
     const video = document.createElement('video');
-    video.src = './sunglass.mp4'; video.playsInline = true; video.muted = false; video.loop = true;
+    video.src = './sunglass.mp4';
+    video.playsInline = true;  // iOS
+    video.muted = false;       // you can set true if you want autoplay without user gesture
+    video.loop = true;
+
     const videoTex = new THREE_AR.VideoTexture(video);
+    const planeMat = new THREE_AR.MeshBasicMaterial({
+      map: videoTex,
+      side: THREE_AR.DoubleSide,
+      depthWrite: false,             // do not occlude model
+    });
+    // optional tiny bias to avoid flicker at grazing angles
+    planeMat.polygonOffset = true;
+    planeMat.polygonOffsetFactor = 1;
+    planeMat.polygonOffsetUnits  = 1;
+
     const plane = new THREE_AR.Mesh(
-      new THREE_AR.PlaneGeometry(1.0, 1.414), // tweak to match page aspect
-      new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide })
+      new THREE_AR.PlaneGeometry(1.0, 1.414), // match your page aspect
+      planeMat
     );
-    plane.position.set(0,0,0.001);
+    plane.position.set(0, 0, -0.02);   // clearly behind the page/model
+    plane.renderOrder = 0;             // draw first
     plane.visible = false;
     anchor.group.add(plane);
 
     anchor.onTargetFound = () => { status('Marker detected ✅'); plane.visible = true; video.play().catch(()=>{}); };
     anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
+    // -------------------------------------------------------------
 
     // Start AR first
     await mindarThree.start();
@@ -76,20 +92,23 @@
     }
 
     loader.load('./sunglass.glb', (gltf) => {
-      const watch = gltf.scene || (gltf.scenes && gltf.scenes[0]);
-      if(!watch){ console.error('GLB has no scene'); return; }
+      const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+      if(!model){ console.error('GLB has no scene'); return; }
 
-      // size/orientation — keep your large scale
-      watch.scale.set(5, 5, 5);
-      watch.position.set(0, 0.1, 0.05);
-      watch.rotation.set(0, Math.PI, 0);
-      anchor.group.add(watch);
+      // Size/orientation — tune to taste
+      model.scale.set(5, 5, 5);
+      model.position.set(0, 0.1, 0.05);  // slightly above the page
+      model.rotation.set(0, Math.PI, 0); // face camera
+      model.renderOrder = 2;             // draw after the plane
+      model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
-      // -------- Option B: drag-to-spin with inertia --------
+      anchor.group.add(model);
+
+      // -------- Drag-to-spin with inertia --------
       const el = document.getElementById('ar');
       let dragging = false, lastX = 0, velocity = 0;
-      const friction = 0.96;       // inertia decay (0–1). Lower = stops sooner
-      const dragFactor = 0.008;    // sensitivity (bigger = faster spin)
+      const friction = 0.96;     // inertia decay (0–1). Higher -> longer spin
+      const dragFactor = 0.008;  // sensitivity
 
       el.addEventListener('pointerdown', e => {
         dragging = true;
@@ -102,8 +121,8 @@
         if (!dragging) return;
         const dx = e.clientX - lastX;
         lastX = e.clientX;
-        watch.rotation.y -= dx * dragFactor; // drag to rotate
-        velocity = -dx * dragFactor;         // remember motion for inertia
+        model.rotation.y -= dx * dragFactor; // drag to rotate
+        velocity = -dx * dragFactor;         // inertia
       });
 
       const endDrag = e => { dragging = false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
@@ -111,21 +130,18 @@
       el.addEventListener('pointercancel', endDrag);
       el.addEventListener('pointerleave', endDrag);
 
-      // inertia loop
-      function animateSpin(){
+      (function animateSpin(){
         if (!dragging) {
-          watch.rotation.y += velocity;
+          model.rotation.y += velocity;
           velocity *= friction;
           if (Math.abs(velocity) < 1e-4) velocity = 0;
         }
         requestAnimationFrame(animateSpin);
-      }
-      animateSpin();
-      // ------------------------------------------------------
-
+      })();
+      // ----------------------------------------------------------
     }, undefined, (err) => {
       console.error('GLB load error:', err);
-      status('Failed to load watch.glb');
+      status('Failed to load sunglass.glb');
     });
   }
 
