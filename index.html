@@ -108,7 +108,7 @@
       loader.setDRACOLoader(draco);
     }
 
-    loader.load('./sunglass.glb', (gltf) => {
+    loader.load('./watch.glb', (gltf) => {
       const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!model){ console.error('GLB has no scene'); return; }
 
