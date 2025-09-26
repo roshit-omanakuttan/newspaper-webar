@@ -128,7 +128,7 @@
       model.scale.set(0.1, 0.1, 0.1);
       model.position.set(0, 0.1, 0.05);
       // model.rotation.set(0, Math.PI, 0);
-      model.rotation.set(-Math.PI / 2, 0, 0); // -90° around X
+      model.rotation.set(Math.PI / 2, 0, 0); // 90° around X
       model.renderOrder = 2;
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
