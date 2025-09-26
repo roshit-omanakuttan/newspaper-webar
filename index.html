@@ -143,7 +143,8 @@
       el.addEventListener('pointermove',  e => {
         if(!dragging) return;
         const dx=e.clientX-lastX; lastX=e.clientX;
-        model.rotation.y -= dx*dragFactor;
+        // model.rotation.y -= dx*dragFactor;
+        model.rotation.z -= dx * dragFactor;
         velocity = -dx*dragFactor;
       });
       const endDrag = e => { dragging=false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
