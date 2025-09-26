@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Model (instant autoplay, restart + unmute)</title>
+  <title>WebAR • Video + Model (smoothed + instant autoplay)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0; touch-action:none;}
@@ -38,7 +38,7 @@
     // Prime the video EARLY (muted) so autoplay works
     const video = document.getElementById('hiddenVideo');
     video.src = './sunglass.mp4';
-    video.muted = true;             // REQUIRED for autoplay
+    video.muted = true;      // REQUIRED for autoplay
     video.playsInline = true;
     video.autoplay = true;
     video.loop = true;
@@ -46,15 +46,30 @@
     tryPlay(video);
     document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tryPlay(video); });
 
-    // MindAR (keep defaults; you can add filter params later if needed)
+    // MindAR with smoothing/tolerances
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
-      imageTargetSrc: './sunglass.mind'
+      imageTargetSrc: './sunglass.mind',
+      filterMinCF: 0.0008,   // lower = smoother (try 0.0005–0.0015)
+      filterBeta:  0.01,     // lower = smoother (try 0.005–0.02)
+      warmupTolerance: 8,    // stabilize at start
+      missTolerance:   8,    // avoid flickery lost/found
     });
     const { renderer, scene, camera } = mindarThree;
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
 
     const anchor = mindarThree.addAnchor(0);
+
+    // -------- Smoothed rig (lerp/slerp toward live anchor) --------
+    const smoothed = new THREE_AR.Group();
+    smoothed.visible = false;
+    scene.add(smoothed);
+
+    const _tPos  = new THREE_AR.Vector3();
+    const _tQuat = new THREE_AR.Quaternion();
+    const _tScl  = new THREE_AR.Vector3();
+    const SMOOTH = 0.18;  // 0.12–0.25 (lower = steadier, higher = snappier)
+    // ---------------------------------------------------------------
 
     // Video plane (behind model) with depth fixes
     const videoTex = new THREE_AR.VideoTexture(video);
@@ -74,7 +89,7 @@
     plane.position.set(0, 0, -0.03);
     plane.renderOrder = 0;
     plane.visible = false;
-    anchor.group.add(plane);
+    smoothed.add(plane); // << attach to smoothed rig (NOT anchor.group)
 
     const unmuteBtn = document.getElementById('unmute');
     unmuteBtn.addEventListener('click', ()=>{
@@ -86,27 +101,35 @@
     // On detection: show overlay immediately, restart video from 0, and nudge play (DON'T await)
     anchor.onTargetFound = () => {
       status('Marker detected ✅');
+      smoothed.visible = true;
       plane.visible = true;
-      // restart from the beginning every time
       try { video.pause(); video.currentTime = 0; } catch(_) {}
       tryPlay(video);               // muted autoplay
-      // show sound button so user can opt-in to audio
       unmuteBtn.style.display = 'inline-block';
     };
     anchor.onTargetLost  = () => {
       status('Searching for marker…');
+      smoothed.visible = false;
       plane.visible = false;
       video.pause();
       unmuteBtn.style.display = 'none';
     };
 
-    // Start AR and keep nudging playback
+    // Start AR and smooth-follow the live anchor
     await mindarThree.start();
     status('Searching for marker…');
-    renderer.setAnimationLoop(()=>renderer.render(scene,camera));
-    tryPlay(video); // another nudge after camera starts
+    renderer.setAnimationLoop(()=>{
+      // decompose current live anchor pose
+      anchor.group.matrixWorld.decompose(_tPos, _tQuat, _tScl);
+      // ease smoothed rig toward it
+      smoothed.position.lerp(_tPos, SMOOTH);
+      smoothed.quaternion.slerp(_tQuat, SMOOTH);
+      smoothed.scale.lerp(_tScl, SMOOTH);
+      renderer.render(scene, camera);
+    });
+    tryPlay(video); // extra nudge after camera starts
 
-    // --- Load GLTF loader & model (unchanged) ---
+    // --- Load GLTF loader & model ---
     window.THREE = THREE_AR;
     await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
     try {
@@ -127,25 +150,25 @@
 
       model.scale.set(0.25, 0.25, 0.25);
       model.position.set(0, 0.1, 0.05);
-      // model.rotation.set(0, Math.PI, 0);
-      model.rotation.set(Math.PI / 2, 0, 0); // 90° around X
+      model.rotation.set(Math.PI / 2, 0, 0); // top view start
       model.renderOrder = 2;
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
-      anchor.group.add(model);
+      smoothed.add(model); // << attach to smoothed rig
 
-      // Drag-to-spin with inertia
+      // Drag-to-spin with inertia (around Z; matches your top-view UX)
       const el = document.getElementById('ar');
-      let dragging=false,lastX=0,velocity=0;
+      let dragging=false,lastX=0,velZ=0;
       const friction=0.96, dragFactor=0.008;
 
-      el.addEventListener('pointerdown', e => { dragging=true; lastX=e.clientX; velocity=0; el.setPointerCapture(e.pointerId); });
+      el.addEventListener('pointerdown', e => {
+        dragging=true; lastX=e.clientX; velZ=0; el.setPointerCapture(e.pointerId);
+      });
       el.addEventListener('pointermove',  e => {
         if(!dragging) return;
         const dx=e.clientX-lastX; lastX=e.clientX;
-        // model.rotation.y -= dx*dragFactor;
-        model.rotation.z -= dx * dragFactor;
-        velocity = -dx*dragFactor;
+        model.rotation.z -= dx*dragFactor;
+        velZ = -dx*dragFactor;
       });
       const endDrag = e => { dragging=false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
       el.addEventListener('pointerup', endDrag);
@@ -153,7 +176,11 @@
       el.addEventListener('pointerleave', endDrag);
 
       (function spin(){
-        if(!dragging){ model.rotation.y += velocity; velocity*=friction; if(Math.abs(velocity)<1e-4) velocity=0; }
+        if(!dragging){
+          model.rotation.z += velZ;  // << match the axis you drag
+          velZ *= friction;
+          if(Math.abs(velZ)<1e-4) velZ=0;
+        }
         requestAnimationFrame(spin);
       })();
     }, undefined, (err) => {
