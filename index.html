@@ -3,22 +3,21 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Sunglass (instant autoplay + restart)</title>
+  <title>WebAR • Video + Sunglass (drag-to-spin, depth fixed)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0; touch-action:none;} /* smooth dragging on mobile */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
-    /* keep the HTMLVideoElement in DOM to satisfy mobile autoplay heuristics */
-    #hiddenVideo{position:fixed;left:-9999px;top:-9999px;width:1px;height:1px}
+    #unmute{position:fixed;right:10px;top:10px;padding:8px 10px;border:0;border-radius:10px;background:#22c55e;color:#0b0b10;font-weight:700;display:none}
   </style>
   <link rel="icon" href="data:,"/>
+  <!-- MindAR UMD (uses Three r128 internally) -->
   <script src="./mindar-image-three.prod.js"></script>
 </head>
 <body>
 <div id="ar"></div>
 <div id="status">Idle</div>
-<!-- Same <video> element also used as the texture -->
-<video id="hiddenVideo" playsinline muted autoplay loop preload="auto"></video>
+<button id="unmute">🔊 sound on</button>
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
@@ -27,7 +26,6 @@
     s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+src));
     document.head.appendChild(s);
   });
-  const tryPlay = (v) => { const p = v.play?.(); if (p && p.catch) p.catch(()=>{}); };
 
   async function init(){
     if(!window.MINDAR || !window.MINDAR.IMAGE){ status('MindAR failed to load'); return; }
@@ -42,61 +40,74 @@
 
     const anchor = mindarThree.addAnchor(0);
 
-    // -------- Prime the video early --------
-    const video = document.getElementById('hiddenVideo');
-    video.src = './sunglass.mp4';
-    video.muted = true;      // REQUIRED for autoplay
-    video.playsInline = true;
-    video.autoplay = true;
-    video.loop = true;
-    video.preload = 'auto';
-    tryPlay(video);
-    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tryPlay(video); });
-    // ---------------------------------------
-
     // -------- Video plane (behind model) with depth fixes --------
+    const video = document.createElement('video');
+    video.src = './sunglass.mp4';
+    video.playsInline = true;  // iOS
+    video.muted = true;        // ✅ allow autoplay
+    video.loop = true;
+
     const videoTex = new THREE_AR.VideoTexture(video);
     const planeMat = new THREE_AR.MeshBasicMaterial({
       map: videoTex,
       side: THREE_AR.DoubleSide,
-      depthWrite: false,
+      depthWrite: false,             // do not occlude model
     });
+    // tiny depth bias helps at grazing angles
     planeMat.polygonOffset = true;
     planeMat.polygonOffsetFactor = 1;
     planeMat.polygonOffsetUnits  = 1;
 
     const plane = new THREE_AR.Mesh(
-      new THREE_AR.PlaneGeometry(1.0, 1.414),
+      new THREE_AR.PlaneGeometry(1.0, 1.414), // match your page aspect
       planeMat
     );
-    plane.position.set(0, 0, -0.03);   // clearly behind content
-    plane.renderOrder = 0;
+    plane.position.set(0, 0, -0.03);   // push further back
+    plane.renderOrder = 0;             // draw first
     plane.visible = false;
     anchor.group.add(plane);
 
-    // On detection: overlay immediately, restart to 0, and nudge play (no await)
-    anchor.onTargetFound = () => {
+    const unmuteBtn = document.getElementById('unmute');
+    unmuteBtn.addEventListener('click', async ()=>{
+      try {
+        video.muted = false;
+        await video.play();
+        unmuteBtn.style.display = 'none';
+      } catch(e) {
+        console.warn('Unmute play failed:', e);
+      }
+    });
+
+    anchor.onTargetFound = async () => {
       status('Marker detected ✅');
       plane.visible = true;
-      try { video.pause(); video.currentTime = 0; } catch(e){}
-      tryPlay(video);
+      try {
+        await video.play();            // will succeed because muted=true
+        // now we can offer unmute
+        unmuteBtn.style.display = 'inline-block';
+      } catch(e) {
+        console.warn('Autoplay failed:', e);
+        // Show button so user can start manually
+        unmuteBtn.style.display = 'inline-block';
+      }
     };
-    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); };
+    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); unmuteBtn.style.display = 'none'; };
     // -------------------------------------------------------------
 
-    // Start AR
+    // Start AR first
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
-    tryPlay(video); // another nudge after camera starts
 
     // Load r128 GLTFLoader (matches MindAR’s THREE)
-    window.THREE = THREE_AR;
+    window.THREE = THREE_AR; // expose the same THREE for legacy example loaders
     await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
+
+    // Optional: DRACO (only if your GLB is draco-compressed)
     try {
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/libs/draco/draco_decoder.js');
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/DRACOLoader.js');
-    } catch(_) {}
+    } catch(_) {/* ignore if not needed */}
 
     const loader = new THREE.GLTFLoader();
     if (THREE.DRACOLoader) {
@@ -109,35 +120,50 @@
       const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!model){ console.error('GLB has no scene'); return; }
 
+      // Size/orientation — tune to taste
       model.scale.set(5, 5, 5);
-      model.position.set(0, 0.1, 0.05);
-      model.rotation.set(0, Math.PI, 0);
-      model.renderOrder = 2;
+      model.position.set(0, 0.1, 0.05);   // above the page
+      model.rotation.set(0, Math.PI, 0);  // face camera
+      model.renderOrder = 2;              // draw after the plane
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
       anchor.group.add(model);
 
-      // Drag-to-spin with inertia
+      // -------- Drag-to-spin with inertia --------
       const el = document.getElementById('ar');
-      let dragging=false,lastX=0,velocity=0;
-      const friction=0.96, dragFactor=0.008;
+      let dragging = false, lastX = 0, velocity = 0;
+      const friction = 0.96;     // inertia decay (0–1). Higher -> longer spin
+      const dragFactor = 0.008;  // sensitivity
 
-      el.addEventListener('pointerdown', e => { dragging=true; lastX=e.clientX; velocity=0; el.setPointerCapture(e.pointerId); });
-      el.addEventListener('pointermove',  e => {
-        if(!dragging) return;
-        const dx=e.clientX-lastX; lastX=e.clientX;
-        model.rotation.y -= dx*dragFactor;
-        velocity = -dx*dragFactor;
+      el.addEventListener('pointerdown', e => {
+        dragging = true;
+        lastX = e.clientX;
+        velocity = 0;
+        el.setPointerCapture(e.pointerId);
       });
-      const endDrag = e => { dragging=false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
+
+      el.addEventListener('pointermove', e => {
+        if (!dragging) return;
+        const dx = e.clientX - lastX;
+        lastX = e.clientX;
+        model.rotation.y -= dx * dragFactor; // drag to rotate
+        velocity = -dx * dragFactor;         // inertia
+      });
+
+      const endDrag = e => { dragging = false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
       el.addEventListener('pointerup', endDrag);
       el.addEventListener('pointercancel', endDrag);
       el.addEventListener('pointerleave', endDrag);
 
-      (function spin(){
-        if(!dragging){ model.rotation.y += velocity; velocity*=friction; if(Math.abs(velocity)<1e-4) velocity=0; }
-        requestAnimationFrame(spin);
+      (function animateSpin(){
+        if (!dragging) {
+          model.rotation.y += velocity;
+          velocity *= friction;
+          if (Math.abs(velocity) < 1e-4) velocity = 0;
+        }
+        requestAnimationFrame(animateSpin);
       })();
+      // ----------------------------------------------------------
     }, undefined, (err) => {
       console.error('GLB load error:', err);
       status('Failed to load sunglass.glb');
