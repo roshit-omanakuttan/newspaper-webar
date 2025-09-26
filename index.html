@@ -125,7 +125,7 @@
       const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!model){ console.error('GLB has no scene'); return; }
 
-      model.scale.set(0.1, 0.1, 0.1);
+      model.scale.set(0.25, 0.25, 0.25);
       model.position.set(0, 0.1, 0.05);
       // model.rotation.set(0, Math.PI, 0);
       model.rotation.set(Math.PI / 2, 0, 0); // 90° around X
