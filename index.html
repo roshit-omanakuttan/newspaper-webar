@@ -3,11 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Video + Sunglass (instant autoplay)</title>
+  <title>WebAR • Video + Sunglass (drag-to-spin, depth fixed)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
     #ar{position:fixed;inset:0; touch-action:none;} /* smooth dragging on mobile */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
+    #unmute{position:fixed;right:10px;top:10px;padding:8px 10px;border:0;border-radius:10px;background:#22c55e;color:#0b0b10;font-weight:700;display:none}
   </style>
   <link rel="icon" href="data:,"/>
   <!-- MindAR UMD (uses Three r128 internally) -->
@@ -16,6 +17,7 @@
 <body>
 <div id="ar"></div>
 <div id="status">Idle</div>
+<button id="unmute">🔊 sound on</button>
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
@@ -24,7 +26,6 @@
     s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+src));
     document.head.appendChild(s);
   });
-  const tryPlay = (v) => { if (!v) return; const p = v.play(); if (p && typeof p.catch === 'function') p.catch(()=>{}); };
 
   async function init(){
     if(!window.MINDAR || !window.MINDAR.IMAGE){ status('MindAR failed to load'); return; }
@@ -42,22 +43,17 @@
     // -------- Video plane (behind model) with depth fixes --------
     const video = document.createElement('video');
     video.src = './sunglass.mp4';
-    video.playsInline = true;   // iOS
-    video.muted = true;         // REQUIRED for autoplay
-    video.loop  = true;
-    video.preload = 'auto';
-    // kick it once right away (ignore any rejection)
-    tryPlay(video);
-    // also retry when tab becomes visible again
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) tryPlay(video); });
+    video.playsInline = true;  // iOS
+    video.muted = true;        // ✅ allow autoplay
+    video.loop = true;
 
     const videoTex = new THREE_AR.VideoTexture(video);
     const planeMat = new THREE_AR.MeshBasicMaterial({
       map: videoTex,
       side: THREE_AR.DoubleSide,
-      depthWrite: false,        // do not occlude model
+      depthWrite: false,             // do not occlude model
     });
-    // small bias to avoid flicker
+    // tiny depth bias helps at grazing angles
     planeMat.polygonOffset = true;
     planeMat.polygonOffsetFactor = 1;
     planeMat.polygonOffsetUnits  = 1;
@@ -66,30 +62,42 @@
       new THREE_AR.PlaneGeometry(1.0, 1.414), // match your page aspect
       planeMat
     );
-    plane.position.set(0, 0, -0.03);   // clearly behind content
+    plane.position.set(0, 0, -0.03);   // push further back
     plane.renderOrder = 0;             // draw first
     plane.visible = false;
     anchor.group.add(plane);
 
-    // on detection: SHOW plane immediately, and try playing (don’t await)
-    anchor.onTargetFound = () => {
+    const unmuteBtn = document.getElementById('unmute');
+    unmuteBtn.addEventListener('click', async ()=>{
+      try {
+        video.muted = false;
+        await video.play();
+        unmuteBtn.style.display = 'none';
+      } catch(e) {
+        console.warn('Unmute play failed:', e);
+      }
+    });
+
+    anchor.onTargetFound = async () => {
       status('Marker detected ✅');
       plane.visible = true;
-      tryPlay(video);
+      try {
+        await video.play();            // will succeed because muted=true
+        // now we can offer unmute
+        unmuteBtn.style.display = 'inline-block';
+      } catch(e) {
+        console.warn('Autoplay failed:', e);
+        // Show button so user can start manually
+        unmuteBtn.style.display = 'inline-block';
+      }
     };
-    anchor.onTargetLost  = () => {
-      status('Searching for marker…');
-      plane.visible = false;
-      video.pause();
-    };
+    anchor.onTargetLost  = () => { status('Searching for marker…'); plane.visible = false; video.pause(); unmuteBtn.style.display = 'none'; };
     // -------------------------------------------------------------
 
-    // Start AR
+    // Start AR first
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>renderer.render(scene,camera));
-    // after camera opens, try again (some browsers allow it now)
-    tryPlay(video);
 
     // Load r128 GLTFLoader (matches MindAR’s THREE)
     window.THREE = THREE_AR; // expose the same THREE for legacy example loaders
@@ -113,7 +121,7 @@
       if(!model){ console.error('GLB has no scene'); return; }
 
       // Size/orientation — tune to taste
-      model.scale.set(0.5, 0.5, 0.5);
+      model.scale.set(5, 5, 5);
       model.position.set(0, 0.1, 0.05);   // above the page
       model.rotation.set(0, Math.PI, 0);  // face camera
       model.renderOrder = 2;              // draw after the plane
