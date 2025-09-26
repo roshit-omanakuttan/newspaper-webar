@@ -3,24 +3,19 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>WebAR • Sunglass (autoplay robust, smoothed, drag-to-spin)</title>
+  <title>WebAR • Video + Sunglass (instant autoplay)</title>
   <style>
     html,body{margin:0;height:100%;background:#0b0b10;color:#eaeaf5}
-    #ar{position:fixed;inset:0; touch-action:none;}
+    #ar{position:fixed;inset:0; touch-action:none;} /* smooth dragging on mobile */
     #status{position:fixed;top:10px;left:10px;background:#121222;border:1px solid #2a2a44;border-radius:10px;padding:8px 10px}
-    #unmute{position:fixed;right:10px;top:10px;padding:8px 10px;border:0;border-radius:10px;background:#22c55e;color:#0b0b10;font-weight:700;display:none}
-    /* keep a tiny offscreen video in DOM to please iOS autoplay heuristics */
-    #preVideo{position:fixed;left:-9999px;top:-9999px;width:1px;height:1px}
   </style>
   <link rel="icon" href="data:,"/>
+  <!-- MindAR UMD (uses Three r128 internally) -->
   <script src="./mindar-image-three.prod.js"></script>
 </head>
 <body>
 <div id="ar"></div>
 <div id="status">Idle</div>
-<button id="unmute">🔊 sound on</button>
-<!-- the same <video> element is also used as the texture -->
-<video id="preVideo" playsinline muted autoplay loop preload="auto"></video>
 
 <script>
   const status = (t)=>{ document.getElementById('status').textContent = t; };
@@ -29,93 +24,82 @@
     s.src = src; s.onload = resolve; s.onerror = () => reject(new Error('Failed to load '+src));
     document.head.appendChild(s);
   });
-
-  // Small helper: try to play, don't await anywhere critical
-  function tryPlay(v){ v.play().catch(()=>{}); }
-  function showUnmuteIfNeeded(v){
-    // If muted video is already playing, we can safely offer unmute
-    const btn = document.getElementById('unmute');
-    if (v.muted) btn.style.display = 'inline-block';
-  }
+  const tryPlay = (v) => { if (!v) return; const p = v.play(); if (p && typeof p.catch === 'function') p.catch(()=>{}); };
 
   async function init(){
     if(!window.MINDAR || !window.MINDAR.IMAGE){ status('MindAR failed to load'); return; }
     const THREE_AR = window.MINDAR.IMAGE.THREE;
 
-    // ------- PREP VIDEO early (muted, inline, autoplay) -------
-    const video = document.getElementById('preVideo');
-    video.src = './sunglass.mp4';
-    video.setAttribute('playsinline','');
-    video.setAttribute('muted','');
-    video.muted = true;
-    video.autoplay = true;
-    video.loop = true;
-    video.preload = 'auto';
-    tryPlay(video);
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) tryPlay(video); });
-    // ----------------------------------------------------------
-
-    // MindAR with a touch of smoothing & tolerance
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
-      imageTargetSrc: './sunglass.mind',
-      filterMinCF: 0.0008,
-      filterBeta:  0.01,
-      warmupTolerance: 8,
-      missTolerance:   8,
+      imageTargetSrc: './sunglass.mind'
     });
     const { renderer, scene, camera } = mindarThree;
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
 
     const anchor = mindarThree.addAnchor(0);
 
-    // Smoothed rig
-    const smoothed = new THREE_AR.Group(); smoothed.visible = false; scene.add(smoothed);
-    const _tPos = new THREE_AR.Vector3(), _tQuat = new THREE_AR.Quaternion(), _tScl = new THREE_AR.Vector3();
-    const SMOOTH = 0.18;
+    // -------- Video plane (behind model) with depth fixes --------
+    const video = document.createElement('video');
+    video.src = './sunglass.mp4';
+    video.playsInline = true;   // iOS
+    video.muted = true;         // REQUIRED for autoplay
+    video.loop  = true;
+    video.preload = 'auto';
+    // kick it once right away (ignore any rejection)
+    tryPlay(video);
+    // also retry when tab becomes visible again
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) tryPlay(video); });
 
-    // Video plane (behind model) with depth fixes
     const videoTex = new THREE_AR.VideoTexture(video);
-    const planeMat = new THREE_AR.MeshBasicMaterial({ map: videoTex, side: THREE_AR.DoubleSide, depthWrite: false });
-    planeMat.polygonOffset = true; planeMat.polygonOffsetFactor = 1; planeMat.polygonOffsetUnits = 1;
-    const plane = new THREE_AR.Mesh(new THREE_AR.PlaneGeometry(1.0, 1.414), planeMat);
-    plane.position.set(0, 0, -0.03);
-    plane.renderOrder = 0;
-    plane.visible = false;
-    smoothed.add(plane);
-
-    const unmuteBtn = document.getElementById('unmute');
-    unmuteBtn.addEventListener('click', ()=>{
-      video.muted = false;
-      tryPlay(video);
-      unmuteBtn.style.display = 'none';
+    const planeMat = new THREE_AR.MeshBasicMaterial({
+      map: videoTex,
+      side: THREE_AR.DoubleSide,
+      depthWrite: false,        // do not occlude model
     });
+    // small bias to avoid flicker
+    planeMat.polygonOffset = true;
+    planeMat.polygonOffsetFactor = 1;
+    planeMat.polygonOffsetUnits  = 1;
 
+    const plane = new THREE_AR.Mesh(
+      new THREE_AR.PlaneGeometry(1.0, 1.414), // match your page aspect
+      planeMat
+    );
+    plane.position.set(0, 0, -0.03);   // clearly behind content
+    plane.renderOrder = 0;             // draw first
+    plane.visible = false;
+    anchor.group.add(plane);
+
+    // on detection: SHOW plane immediately, and try playing (don’t await)
     anchor.onTargetFound = () => {
       status('Marker detected ✅');
-      smoothed.visible = true;
       plane.visible = true;
-      tryPlay(video);          // retry play on detection
-      showUnmuteIfNeeded(video);
+      tryPlay(video);
     };
-    anchor.onTargetLost = () => {
+    anchor.onTargetLost  = () => {
       status('Searching for marker…');
-      smoothed.visible = false; plane.visible = false;
-      video.pause(); document.getElementById('unmute').style.display = 'none';
+      plane.visible = false;
+      video.pause();
     };
+    // -------------------------------------------------------------
 
     // Start AR
     await mindarThree.start();
     status('Searching for marker…');
-    tryPlay(video); // retry after camera starts
+    renderer.setAnimationLoop(()=>renderer.render(scene,camera));
+    // after camera opens, try again (some browsers allow it now)
+    tryPlay(video);
 
     // Load r128 GLTFLoader (matches MindAR’s THREE)
-    window.THREE = THREE_AR;
+    window.THREE = THREE_AR; // expose the same THREE for legacy example loaders
     await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/GLTFLoader.js');
+
+    // Optional: DRACO (only if your GLB is draco-compressed)
     try {
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/libs/draco/draco_decoder.js');
       await loadScript('https://unpkg.com/three@0.128.0/examples/js/loaders/DRACOLoader.js');
-    } catch(_) {}
+    } catch(_) {/* ignore if not needed */}
 
     const loader = new THREE.GLTFLoader();
     if (THREE.DRACOLoader) {
@@ -124,37 +108,57 @@
       loader.setDRACOLoader(draco);
     }
 
-    let model;
     loader.load('./sunglass.glb', (gltf) => {
-      model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
+      const model = gltf.scene || (gltf.scenes && gltf.scenes[0]);
       if(!model){ console.error('GLB has no scene'); return; }
+
+      // Size/orientation — tune to taste
       model.scale.set(5, 5, 5);
-      model.position.set(0, 0.1, 0.05);
-      model.rotation.set(0, Math.PI, 0);
-      model.renderOrder = 2;
+      model.position.set(0, 0.1, 0.05);   // above the page
+      model.rotation.set(0, Math.PI, 0);  // face camera
+      model.renderOrder = 2;              // draw after the plane
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
-      smoothed.add(model);
 
-      // Drag-to-spin with inertia
+      anchor.group.add(model);
+
+      // -------- Drag-to-spin with inertia --------
       const el = document.getElementById('ar');
-      let dragging=false,lastX=0,velocity=0;
-      const friction=0.96, dragFactor=0.008;
+      let dragging = false, lastX = 0, velocity = 0;
+      const friction = 0.96;     // inertia decay (0–1). Higher -> longer spin
+      const dragFactor = 0.008;  // sensitivity
 
-      el.addEventListener('pointerdown', e => { dragging=true; lastX=e.clientX; velocity=0; el.setPointerCapture(e.pointerId); });
-      el.addEventListener('pointermove',  e => { if(!dragging||!model) return; const dx=e.clientX-lastX; lastX=e.clientX; model.rotation.y -= dx*dragFactor; velocity = -dx*dragFactor; });
-      const endDrag = e => { dragging=false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
-      el.addEventListener('pointerup', endDrag); el.addEventListener('pointercancel', endDrag); el.addEventListener('pointerleave', endDrag);
+      el.addEventListener('pointerdown', e => {
+        dragging = true;
+        lastX = e.clientX;
+        velocity = 0;
+        el.setPointerCapture(e.pointerId);
+      });
 
-      (function spin(){ if(!dragging&&model){ model.rotation.y += velocity; velocity*=friction; if(Math.abs(velocity)<1e-4) velocity=0; } requestAnimationFrame(spin); })();
-    });
+      el.addEventListener('pointermove', e => {
+        if (!dragging) return;
+        const dx = e.clientX - lastX;
+        lastX = e.clientX;
+        model.rotation.y -= dx * dragFactor; // drag to rotate
+        velocity = -dx * dragFactor;         // inertia
+      });
 
-    // Smoothed render loop (lerp/slerp pose)
-    renderer.setAnimationLoop(() => {
-      anchor.group.matrixWorld.decompose(_tPos, _tQuat, _tScl);
-      smoothed.position.lerp(_tPos, SMOOTH);
-      smoothed.quaternion.slerp(_tQuat, SMOOTH);
-      smoothed.scale.lerp(_tScl, SMOOTH);
-      renderer.render(scene, camera);
+      const endDrag = e => { dragging = false; try{ el.releasePointerCapture(e.pointerId); }catch{} };
+      el.addEventListener('pointerup', endDrag);
+      el.addEventListener('pointercancel', endDrag);
+      el.addEventListener('pointerleave', endDrag);
+
+      (function animateSpin(){
+        if (!dragging) {
+          model.rotation.y += velocity;
+          velocity *= friction;
+          if (Math.abs(velocity) < 1e-4) velocity = 0;
+        }
+        requestAnimationFrame(animateSpin);
+      })();
+      // ----------------------------------------------------------
+    }, undefined, (err) => {
+      console.error('GLB load error:', err);
+      status('Failed to load sunglass.glb');
     });
   }
 
