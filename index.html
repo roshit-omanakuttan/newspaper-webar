@@ -35,10 +35,15 @@
     if (!window.MINDAR || !window.MINDAR.IMAGE) { status('MindAR failed to load'); return; }
     const THREE_AR = window.MINDAR.IMAGE.THREE;
 
+    // --- NEW: Animation state ---
+    let mixer = null;                   // NEW
+    const actions = [];                 // NEW
+    const clock = new THREE_AR.Clock(); // NEW
+
     // Prime the video EARLY (muted) so autoplay works
     const video = document.getElementById('hiddenVideo');
     video.src = './sunglass.mp4';
-    video.muted = true;      // REQUIRED for autoplay
+    video.muted = true;
     video.playsInline = true;
     video.autoplay = true;
     video.loop = true;
@@ -50,17 +55,17 @@
     const mindarThree = new window.MINDAR.IMAGE.MindARThree({
       container: document.querySelector('#ar'),
       imageTargetSrc: './sunglass.mind',
-      filterMinCF: 0.0008,   // lower = smoother (try 0.0005–0.0015)
-      filterBeta:  0.01,     // lower = smoother (try 0.005–0.02)
-      warmupTolerance: 8,    // stabilize at start
-      missTolerance:   8,    // avoid flickery lost/found
+      filterMinCF: 0.0008,
+      filterBeta:  0.01,
+      warmupTolerance: 8,
+      missTolerance:   8,
     });
     const { renderer, scene, camera } = mindarThree;
     scene.add(new THREE_AR.HemisphereLight(0xffffff, 0x222233, 1.0));
 
     const anchor = mindarThree.addAnchor(0);
 
-    // -------- Smoothed rig (lerp/slerp toward live anchor) --------
+    // -------- Smoothed rig --------
     const smoothed = new THREE_AR.Group();
     smoothed.visible = false;
     scene.add(smoothed);
@@ -68,10 +73,9 @@
     const _tPos  = new THREE_AR.Vector3();
     const _tQuat = new THREE_AR.Quaternion();
     const _tScl  = new THREE_AR.Vector3();
-    const SMOOTH = 0.18;  // 0.12–0.25 (lower = steadier, higher = snappier)
-    // ---------------------------------------------------------------
+    const SMOOTH = 0.18;
 
-    // Video plane (behind model) with depth fixes
+    // Video plane
     const videoTex = new THREE_AR.VideoTexture(video);
     const planeMat = new THREE_AR.MeshBasicMaterial({
       map: videoTex,
@@ -89,36 +93,48 @@
     plane.position.set(0, 0, -0.03);
     plane.renderOrder = 0;
     plane.visible = false;
-    smoothed.add(plane); // << attach to smoothed rig (NOT anchor.group)
+    smoothed.add(plane);
 
     const unmuteBtn = document.getElementById('unmute');
     unmuteBtn.addEventListener('click', ()=>{
-      video.muted = false;      // turn sound on
-      tryPlay(video);           // nudge play with gesture
+      video.muted = false;
+      tryPlay(video);
       unmuteBtn.style.display = 'none';
     });
 
-    // On detection: show overlay immediately, restart video from 0, and nudge play (DON'T await)
+    // On detection: show + resume animations
     anchor.onTargetFound = () => {
       status('Marker detected ✅');
       smoothed.visible = true;
       plane.visible = true;
       try { video.pause(); video.currentTime = 0; } catch(_) {}
-      tryPlay(video);               // muted autoplay
+      tryPlay(video);
       unmuteBtn.style.display = 'inline-block';
+
+      // NEW: resume animation
+      actions.forEach(a => a.paused = false);
     };
+
+    // On lost: hide + pause animations
     anchor.onTargetLost  = () => {
       status('Searching for marker…');
       smoothed.visible = false;
       plane.visible = false;
       video.pause();
       unmuteBtn.style.display = 'none';
+
+      // NEW: pause animation
+      actions.forEach(a => a.paused = true);
     };
 
     // Start AR and smooth-follow the live anchor
     await mindarThree.start();
     status('Searching for marker…');
     renderer.setAnimationLoop(()=>{
+      // NEW: tick animation mixer
+      const dt = clock.getDelta();
+      if (mixer) mixer.update(dt);
+
       // decompose current live anchor pose
       anchor.group.matrixWorld.decompose(_tPos, _tQuat, _tScl);
       // ease smoothed rig toward it
@@ -127,7 +143,7 @@
       smoothed.scale.lerp(_tScl, SMOOTH);
       renderer.render(scene, camera);
     });
-    tryPlay(video); // extra nudge after camera starts
+    tryPlay(video);
 
     // --- Load GLTF loader & model ---
     window.THREE = THREE_AR;
@@ -150,13 +166,27 @@
 
       model.scale.set(0.25, 0.25, 0.25);
       model.position.set(0, 0.1, 0.05);
-      model.rotation.set(Math.PI / 2, 0, 0); // top view start
+      model.rotation.set(Math.PI / 2, 0, 0);
       model.renderOrder = 2;
       model.traverse(o => { if (o.isMesh && o.material) o.material.depthTest = true; });
 
-      smoothed.add(model); // << attach to smoothed rig
+      smoothed.add(model);
 
-      // Drag-to-spin with inertia (around Z; matches your top-view UX)
+      // --- NEW: build & play animations if present ---
+      if (gltf.animations && gltf.animations.length) {
+        mixer = new THREE_AR.AnimationMixer(model);
+        gltf.animations.forEach((clip, i) => {
+          const action = mixer.clipAction(clip);
+          action.loop = THREE_AR.LoopRepeat;      // or LoopOnce
+          action.clampWhenFinished = true;
+          action.enabled = true;
+          actions.push(action);
+        });
+        // auto-play the first clip
+        actions[0].reset().play();
+      }
+
+      // Drag-to-spin with inertia (unchanged)
       const el = document.getElementById('ar');
       let dragging=false,lastX=0,velZ=0;
       const friction=0.96, dragFactor=0.008;
@@ -177,7 +207,7 @@
 
       (function spin(){
         if(!dragging){
-          model.rotation.z += velZ;  // << match the axis you drag
+          model.rotation.z += velZ;
           velZ *= friction;
           if(Math.abs(velZ)<1e-4) velZ=0;
         }
